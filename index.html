@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Third-Person Mobile Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* Prevents scrollbars */
+            background-color: #87CEEB; /* Sky blue background */
+            font-family: sans-serif;
+            touch-action: none; /* Prevents pull-to-refresh on mobile */
+        }
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            text-shadow: 1px 1px 2px black;
+            pointer-events: none; 
+            z-index: 10;
+        }
+        
+        /* Mobile D-Pad Styling */
+        #d-pad {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            z-index: 20;
+        }
+        .d-row {
+            display: flex;
+            gap: 45px;
+        }
+        .d-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            color: white;
+            font-size: 24px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            user-select: none; 
+            touch-action: none; 
+        }
+        .d-btn:active {
+            background: rgba(255, 255, 255, 0.5);
+        }
+    </style>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <h2>Wasteland 3D</h2>
+        <p>Swipe screen to look.</p>
+        <p>Use joystick to move.</p>
+    </div>
+
+    <div id="d-pad">
+        <div class="d-btn" id="btn-w">W</div>
+        <div class="d-row">
+            <div class="d-btn" id="btn-a">A</div>
+            <div class="d-btn" id="btn-d">D</div>
+        </div>
+        <div class="d-btn" id="btn-s">S</div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // 1. SCENE SETUP
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); 
+        scene.fog = new THREE.Fog(0x87CEEB, 10, 50);  
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true; 
+        document.body.appendChild(renderer.domElement);
+
+        // 2. LIGHTING & ENVIRONMENT
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.camera.top = 20;
+        dirLight.shadow.camera.bottom = -20;
+        dirLight.shadow.camera.left = -20;
+        dirLight.shadow.camera.right = 20;
+        scene.add(dirLight);
+
+        const groundGeo = new THREE.PlaneGeometry(100, 100);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x228B22 }); 
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2; 
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // 3. THE CHARACTER
+        let player, mixer;
+        const walkSpeed = 0.15;
+
+        // Temporary Placeholder
+        const capsuleGeo = new THREE.CapsuleGeometry(0.5, 1, 4, 8);
+        const capsuleMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+        player = new THREE.Mesh(capsuleGeo, capsuleMat);
+        player.position.y = 1; 
+        player.castShadow = true;
+        scene.add(player);
+
+        /* // --- UNCOMMENT WHEN YOU HAVE character.glb ---
+        const loader = new GLTFLoader();
+        loader.load('character.glb', function (gltf) {
+            scene.remove(player); 
+            player = gltf.scene;
+            player.traverse(function (child) {
+                if (child.isMesh) child.castShadow = true;
+            });
+            scene.add(player);
+
+            mixer = new THREE.AnimationMixer(player);
+            const action = mixer.clipAction(gltf.animations[0]); 
+            action.play();
+        });
+        */
+
+        // 4. CAMERA CONTROLS
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enablePan = false;
+        controls.enableDamping = true; 
+        controls.minDistance = 2;
+        controls.maxDistance = 10;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05; 
+        camera.position.set(0, 3, -5);
+
+        // 5. INPUT LOGIC (Keyboard + Mobile Touch)
+        const keys = { w: false, a: false, s: false, d: false };
+
+        // Keyboard support
+        window.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
+        window.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+
+        // Mobile touch support
+        function mapTouch(id, keyStr) {
+            const btn = document.getElementById(id);
+            const press = (e) => { e.preventDefault(); keys[keyStr] = true; };
+            const release = (e) => { e.preventDefault(); keys[keyStr] = false; };
+            
+            btn.addEventListener('touchstart', press);
+            btn.addEventListener('touchend', release);
+            btn.addEventListener('touchcancel', release);
+            
+            // Keep mouse support for testing D-pad on computer
+            btn.addEventListener('mousedown', press);
+            btn.addEventListener('mouseup', release);
+            btn.addEventListener('mouseleave', release);
+        }
+
+        mapTouch('btn-w', 'w');
+        mapTouch('btn-a', 'a');
+        mapTouch('btn-s', 's');
+        mapTouch('btn-d', 'd');
+
+        // 6. RENDER LOOP
+        const clock = new THREE.Clock(); 
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            if (mixer) mixer.update(delta);
+
+            if (player) {
+                const cameraDir = new THREE.Vector3();
+                camera.getWorldDirection(cameraDir);
+                cameraDir.y = 0; 
+                cameraDir.normalize();
+
+                const cameraRight = new THREE.Vector3();
+                cameraRight.crossVectors(camera.up, cameraDir).normalize();
+
+                if (keys.w) player.position.addScaledVector(cameraDir, walkSpeed);
+                if (keys.s) player.position.addScaledVector(cameraDir, -walkSpeed);
+                if (keys.a) player.position.addScaledVector(cameraRight, walkSpeed);
+                if (keys.d) player.position.addScaledVector(cameraRight, -walkSpeed);
+
+                // Smoothly make the 3D model face the direction of movement
+                if (keys.w || keys.a || keys.s || keys.d) {
+                    const moveDir = new THREE.Vector3();
+                    if (keys.w) moveDir.add(cameraDir);
+                    if (keys.s) moveDir.sub(cameraDir);
+                    if (keys.a) moveDir.add(cameraRight);
+                    if (keys.d) moveDir.sub(cameraRight);
+                    moveDir.normalize();
+                    
+                    const targetRotation = Math.atan2(moveDir.x, moveDir.z);
+                    // This rotation math ensures your character actually looks where they walk!
+                    player.rotation.y = targetRotation; 
+                }
+
+                controls.target.copy(player.position);
+                controls.target.y += 1; 
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
